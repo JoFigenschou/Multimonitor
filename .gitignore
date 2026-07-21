@@ -1,0 +1,27 @@
+# Visual Studio / Unreal
+.vs/
+*.sln
+*.suo
+*.user
+*.opendb
+*.VC.db
+
+# Unreal build products
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+
+# Compiled
+*.dll
+*.exe
+*.pdb
+*.lib
+*.exp
+*.obj
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store

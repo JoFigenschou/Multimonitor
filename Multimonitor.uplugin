@@ -1,0 +1,28 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Multimonitor",
+	"Description": "Show different cameras, render targets, or HUD widgets on secondary monitors via independent Slate windows.",
+	"Category": "Display",
+	"CreatedBy": "JoFigenschou",
+	"CreatedByURL": "https://github.com/JoFigenschou/Multimonitor",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EngineVersion": "5.7.0",
+	"CanContainContent": true,
+	"IsBetaVersion": true,
+	"IsExperimentalVersion": false,
+	"Installed": false,
+	"Modules": [
+		{
+			"Name": "Multimonitor",
+			"Type": "Runtime",
+			"LoadingPhase": "Default",
+			"PlatformAllowList": [
+				"Win64"
+			]
+		}
+	]
+}
