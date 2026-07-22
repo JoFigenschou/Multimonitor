@@ -7,6 +7,23 @@
 #include "GameFramework/Actor.h"
 #include "Materials/MaterialInterface.h"
 
+namespace MultimonitorCapturePrivate
+{
+	void ApplyCaptureSafeExposure(FPostProcessSettings& Settings)
+	{
+		// CineCamera physical/auto exposure often evaluates to black on SceneCapture.
+		Settings.bOverride_AutoExposureMethod = true;
+		Settings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
+		Settings.bOverride_AutoExposureBias = true;
+		Settings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
+		Settings.AutoExposureApplyPhysicalCameraExposure = false;
+		Settings.bOverride_AutoExposureMinBrightness = true;
+		Settings.bOverride_AutoExposureMaxBrightness = true;
+		Settings.AutoExposureMinBrightness = 1.0f;
+		Settings.AutoExposureMaxBrightness = 1.0f;
+	}
+}
+
 AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -18,7 +35,8 @@ AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 	CaptureComponent->bCaptureEveryFrame = true;
 	CaptureComponent->bCaptureOnMovement = true;
 	CaptureComponent->bAlwaysPersistRenderingState = true;
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
+	// LDR matches UMG display and post-process materials reliably (HDR→RGBA8 often goes black).
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 	CaptureComponent->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
 	CaptureComponent->PostProcessBlendWeight = 1.0f;
 	CaptureComponent->ShowFlags.SetPostProcessing(true);
@@ -49,12 +67,15 @@ void AMultimonitorCaptureActor::Configure(
 		OwnedRenderTarget->ClearColor = FLinearColor::Black;
 		OwnedRenderTarget->bAutoGenerateMips = false;
 		OwnedRenderTarget->RenderTargetFormat = RTF_RGBA8;
-		OwnedRenderTarget->InitCustomFormat(SizeX, SizeY, PF_B8G8R8A8, false);
+		OwnedRenderTarget->bForceLinearGamma = false;
+		OwnedRenderTarget->InitAutoFormat(SizeX, SizeY);
 		OwnedRenderTarget->UpdateResourceImmediate(true);
 		RenderTarget = OwnedRenderTarget;
 	}
 
 	CaptureComponent->TextureTarget = RenderTarget;
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	CaptureComponent->ShowFlags.SetPostProcessing(true);
 	SyncTransformToViewTarget();
 	ApplyPostProcess();
 }
@@ -75,8 +96,8 @@ void AMultimonitorCaptureActor::SetPostProcessMaterials(const TArray<FMultimonit
 void AMultimonitorCaptureActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	// Only sync transform each frame. Re-applying full PP every tick can black out the capture.
 	SyncTransformToViewTarget();
-	ApplyPostProcess();
 }
 
 void AMultimonitorCaptureActor::SyncTransformToViewTarget()
@@ -111,21 +132,23 @@ void AMultimonitorCaptureActor::ApplyPostProcess()
 	}
 
 	CaptureComponent->ShowFlags.SetPostProcessing(true);
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
 
 	FPostProcessSettings Settings;
-	float BlendWeight = 1.0f;
+	MultimonitorCapturePrivate::ApplyCaptureSafeExposure(Settings);
 
 	if (bCopyCameraPostProcess && ViewTarget)
 	{
 		if (UCameraComponent* CameraComp = ViewTarget->FindComponentByClass<UCameraComponent>())
 		{
-			Settings = CameraComp->PostProcessSettings;
-			BlendWeight = CameraComp->PostProcessBlendWeight;
+			// Copy blendables (PP materials) only — full camera PP includes exposure that blacks out captures.
+			Settings.WeightedBlendables = CameraComp->PostProcessSettings.WeightedBlendables;
+			MultimonitorCapturePrivate::ApplyCaptureSafeExposure(Settings);
 		}
 	}
 
 	CaptureComponent->PostProcessSettings = Settings;
-	CaptureComponent->PostProcessBlendWeight = BlendWeight;
+	CaptureComponent->PostProcessBlendWeight = 1.0f;
 
 	for (const FMultimonitorPostProcessEntry& Entry : ExtraPostProcessMaterials)
 	{
