@@ -87,7 +87,9 @@ BeginPlay
 
 ## Tips
 
+- **Do not use Monitor Index `0` for secondary output** — that is usually the primary display. Covering it fullscreen blacks out Play-in-Editor. Use **Get Monitor Info**, then pick a secondary index (often `1`).
+- Leave **Allow Primary Monitor** unchecked unless you intentionally want to take over the main display.
+- Render Target can stay empty for Camera slots (the plugin creates one).
 - Use **extended** desktop mode in Windows (not Duplicate).
 - Test in **Standalone Game** if PIE is awkward with multiple windows.
-- Do not point a slot at the primary game monitor — the plugin skips it on purpose.
 - Camera slots create a SceneCapture; heavier scenes cost more GPU per extra monitor.

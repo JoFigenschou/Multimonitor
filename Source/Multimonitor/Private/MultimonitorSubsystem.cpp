@@ -89,7 +89,12 @@ bool UMultimonitorSubsystem::IsPrimaryGameMonitor(int32 MonitorIndex) const
 		return false;
 	}
 
-	// Prefer detecting which monitor hosts the game viewport window.
+	if (MonitorInfo.bIsPrimary || MonitorIndex == GetPrimaryMonitorIndex())
+	{
+		return true;
+	}
+
+	// Prefer detecting which monitor hosts the game viewport window (PIE / standalone).
 	if (GEngine && GEngine->GameViewport)
 	{
 		const TSharedPtr<SWindow> GameWindow = GEngine->GameViewport->GetWindow();
@@ -109,7 +114,7 @@ bool UMultimonitorSubsystem::IsPrimaryGameMonitor(int32 MonitorIndex) const
 		}
 	}
 
-	return MonitorInfo.bIsPrimary;
+	return false;
 }
 
 UWorld* UMultimonitorSubsystem::GetPlayWorld() const
@@ -338,9 +343,11 @@ bool UMultimonitorSubsystem::CreateOrUpdateSlot(const FMultimonitorSlot& Slot)
 	}
 
 	// Default: do not take over the monitor hosting the primary game viewport.
-	if (IsPrimaryGameMonitor(Slot.MonitorIndex))
+	if (!Slot.bAllowPrimaryMonitor && IsPrimaryGameMonitor(Slot.MonitorIndex))
 	{
-		UE_LOG(LogMultimonitor, Warning, TEXT("Multimonitor: Skipping monitor %d because it hosts the primary game viewport."), Slot.MonitorIndex);
+		UE_LOG(LogMultimonitor, Warning,
+			TEXT("Multimonitor: Skipping monitor %d (primary/game viewport). Use a secondary Monitor Index (often 1). Set bAllowPrimaryMonitor only if you intentionally want to cover that display."),
+			Slot.MonitorIndex);
 		return false;
 	}
 

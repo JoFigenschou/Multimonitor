@@ -69,6 +69,13 @@ struct MULTIMONITOR_API FMultimonitorSlot
 	bool bFullscreen = true;
 
 	/**
+	 * If false (default), slots targeting the primary / game-viewport monitor are refused.
+	 * Leave this off — using monitor 0 fullscreen will cover Play-in-Editor with a black window.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor")
+	bool bAllowPrimaryMonitor = false;
+
+	/**
 	 * Capture resolution for Camera slots when no RenderTarget is supplied.
 	 * (0,0) means match the target monitor native resolution.
 	 */

@@ -14,6 +14,28 @@ void UMultimonitorRenderTargetWidget::NativeOnInitialized()
 	ApplyToImage();
 }
 
+void UMultimonitorRenderTargetWidget::NativeConstruct()
+{
+	Super::NativeConstruct();
+
+	// Ensure NativeTick runs for C++-only widgets (keeps RT brush updating).
+	bHasScriptImplementedTick = true;
+
+	EnsureDisplayImage();
+	ApplyToImage();
+}
+
+void UMultimonitorRenderTargetWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+{
+	Super::NativeTick(MyGeometry, InDeltaTime);
+
+	// Slate often fails to refresh RT brushes unless reapplied; keep the image live.
+	if (RenderTarget && DisplayImage)
+	{
+		ApplyToImage();
+	}
+}
+
 TSharedRef<SWidget> UMultimonitorRenderTargetWidget::RebuildWidget()
 {
 	EnsureDisplayImage();
@@ -101,9 +123,15 @@ void UMultimonitorRenderTargetWidget::ApplyToImage()
 	{
 		FSlateBrush Brush;
 		Brush.SetResourceObject(RenderTarget);
-		Brush.ImageSize = FVector2D(RenderTarget->SizeX, RenderTarget->SizeY);
+		Brush.ImageSize = FVector2D(
+			RenderTarget->SizeX > 0 ? RenderTarget->SizeX : 1920,
+			RenderTarget->SizeY > 0 ? RenderTarget->SizeY : 1080);
 		Brush.DrawAs = ESlateBrushDrawType::Image;
+		Brush.Tiling = ESlateBrushTileType::NoTile;
+		Brush.Mirroring = ESlateBrushMirrorType::NoMirror;
+		Brush.ImageType = ESlateBrushImageType::FullColor;
 		DisplayImage->SetBrush(Brush);
+		DisplayImage->SetBrushResourceObject(RenderTarget);
 	}
 	else
 	{

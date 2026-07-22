@@ -15,7 +15,8 @@ public class Multimonitor : ModuleRules
 			"UMG",
 			"Slate",
 			"SlateCore",
-			"ApplicationCore"
+			"ApplicationCore",
+			"CinematicCamera"
 		});
 	}
 }

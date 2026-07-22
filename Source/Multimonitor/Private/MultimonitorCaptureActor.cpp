@@ -1,5 +1,6 @@
 #include "MultimonitorCaptureActor.h"
 
+#include "CineCameraComponent.h"
 #include "Camera/CameraComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
@@ -14,8 +15,9 @@ AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 	SetRootComponent(CaptureComponent);
 
 	CaptureComponent->bCaptureEveryFrame = true;
-	CaptureComponent->bCaptureOnMovement = false;
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	CaptureComponent->bCaptureOnMovement = true;
+	CaptureComponent->bAlwaysPersistRenderingState = true;
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
 	CaptureComponent->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
 }
 
@@ -34,16 +36,17 @@ void AMultimonitorCaptureActor::Configure(AActor* InViewTarget, UTextureRenderTa
 		const int32 SizeY = FallbackResolution.Y > 0 ? FallbackResolution.Y : 1080;
 
 		OwnedRenderTarget = NewObject<UTextureRenderTarget2D>(this, NAME_None, RF_Transient);
-		OwnedRenderTarget->RenderTargetFormat = RTF_RGBA8;
 		OwnedRenderTarget->ClearColor = FLinearColor::Black;
 		OwnedRenderTarget->bAutoGenerateMips = false;
-		OwnedRenderTarget->InitAutoFormat(SizeX, SizeY);
+		OwnedRenderTarget->RenderTargetFormat = RTF_RGBA8;
+		OwnedRenderTarget->InitCustomFormat(SizeX, SizeY, PF_B8G8R8A8, false);
 		OwnedRenderTarget->UpdateResourceImmediate(true);
 		RenderTarget = OwnedRenderTarget;
 	}
 
 	CaptureComponent->TextureTarget = RenderTarget;
 	SyncTransformToViewTarget();
+	CaptureComponent->CaptureScene();
 }
 
 void AMultimonitorCaptureActor::SetViewTarget(AActor* InViewTarget)
@@ -62,6 +65,13 @@ void AMultimonitorCaptureActor::SyncTransformToViewTarget()
 {
 	if (!ViewTarget || !CaptureComponent)
 	{
+		return;
+	}
+
+	if (UCineCameraComponent* CineCamera = ViewTarget->FindComponentByClass<UCineCameraComponent>())
+	{
+		CaptureComponent->SetWorldTransform(CineCamera->GetComponentTransform());
+		CaptureComponent->FOVAngle = CineCamera->GetHorizontalFieldOfView();
 		return;
 	}
 
