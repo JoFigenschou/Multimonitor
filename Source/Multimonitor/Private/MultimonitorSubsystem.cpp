@@ -89,12 +89,9 @@ bool UMultimonitorSubsystem::IsPrimaryGameMonitor(int32 MonitorIndex) const
 		return false;
 	}
 
-	if (MonitorInfo.bIsPrimary || MonitorIndex == GetPrimaryMonitorIndex())
-	{
-		return true;
-	}
-
-	// Prefer detecting which monitor hosts the game viewport window (PIE / standalone).
+	// Only block the monitor that currently hosts the game/PIE viewport.
+	// Do NOT block the OS primary display just because it is primary — that display
+	// is often a valid Multimonitor output when PIE lives on another screen.
 	if (GEngine && GEngine->GameViewport)
 	{
 		const TSharedPtr<SWindow> GameWindow = GEngine->GameViewport->GetWindow();
@@ -102,14 +99,17 @@ bool UMultimonitorSubsystem::IsPrimaryGameMonitor(int32 MonitorIndex) const
 		{
 			const FVector2D WindowPos = GameWindow->GetPositionInScreen();
 			const FVector2D WindowSize = GameWindow->GetSizeInScreen();
-			const FVector2D WindowCenter = WindowPos + (WindowSize * 0.5f);
-
-			if (WindowCenter.X >= MonitorInfo.DisplayRectMin.X &&
-				WindowCenter.X < MonitorInfo.DisplayRectMax.X &&
-				WindowCenter.Y >= MonitorInfo.DisplayRectMin.Y &&
-				WindowCenter.Y < MonitorInfo.DisplayRectMax.Y)
+			if (WindowSize.X > 1.f && WindowSize.Y > 1.f)
 			{
-				return true;
+				const FVector2D WindowCenter = WindowPos + (WindowSize * 0.5f);
+
+				if (WindowCenter.X >= MonitorInfo.DisplayRectMin.X &&
+					WindowCenter.X < MonitorInfo.DisplayRectMax.X &&
+					WindowCenter.Y >= MonitorInfo.DisplayRectMin.Y &&
+					WindowCenter.Y < MonitorInfo.DisplayRectMax.Y)
+				{
+					return true;
+				}
 			}
 		}
 	}
@@ -342,14 +342,21 @@ bool UMultimonitorSubsystem::CreateOrUpdateSlot(const FMultimonitorSlot& Slot)
 		return false;
 	}
 
-	// Default: do not take over the monitor hosting the primary game viewport.
+	// Default: do not cover the monitor that hosts the game/PIE viewport.
 	if (!Slot.bAllowPrimaryMonitor && IsPrimaryGameMonitor(Slot.MonitorIndex))
 	{
 		UE_LOG(LogMultimonitor, Warning,
-			TEXT("Multimonitor: Skipping monitor %d (primary/game viewport). Use a secondary Monitor Index (often 1). Set bAllowPrimaryMonitor only if you intentionally want to cover that display."),
-			Slot.MonitorIndex);
+			TEXT("Multimonitor: Skipping monitor %d — the game/PIE viewport is on that display. Pick another index from Get Monitor Info (your layout has primary OS monitor at index %d). Set Allow Primary Monitor to force."),
+			Slot.MonitorIndex,
+			GetPrimaryMonitorIndex());
 		return false;
 	}
+
+	UE_LOG(LogMultimonitor, Log,
+		TEXT("Multimonitor: Opening slot on monitor %d (%s) content=%d"),
+		Slot.MonitorIndex,
+		*MonitorInfo.Name,
+		static_cast<int32>(Slot.ContentType));
 
 	UWorld* World = GetPlayWorld();
 	if (!World)

@@ -15,20 +15,24 @@ bool UMultimonitorWindow::Open(UWorld* World, int32 InMonitorIndex, const FVecto
 
 	MonitorIndex = InMonitorIndex;
 
+	// Use borderless fixed windows positioned on each display.
+	// EWindowMode::WindowedFullscreen is effectively single-display and breaks multi-output.
 	SlateWindow = SNew(SWindow)
 		.Title(Title)
+		.Type(EWindowType::Normal)
 		.ScreenPosition(ScreenPosition)
 		.ClientSize(ClientSize)
 		.AutoCenter(EAutoCenter::None)
 		.SizingRule(ESizingRule::FixedSize)
 		.SupportsMaximize(false)
 		.SupportsMinimize(false)
-		.HasCloseButton(false)
+		.HasCloseButton(!bFullscreen)
 		.CreateTitleBar(!bFullscreen)
 		.UseOSWindowBorder(!bFullscreen)
 		.IsInitiallyMaximized(false)
 		.FocusWhenFirstShown(false)
-		.ActivationPolicy(EWindowActivationPolicy::Never);
+		.ActivationPolicy(EWindowActivationPolicy::Never)
+		.IsTopmostWindow(false);
 
 	if (!SlateWindow.IsValid())
 	{
@@ -37,13 +41,10 @@ bool UMultimonitorWindow::Open(UWorld* World, int32 InMonitorIndex, const FVecto
 
 	FSlateApplication::Get().AddWindow(SlateWindow.ToSharedRef(), true);
 
-	if (bFullscreen)
-	{
-		SlateWindow->SetWindowMode(EWindowMode::WindowedFullscreen);
-		SlateWindow->MoveWindowTo(ScreenPosition);
-		SlateWindow->Resize(ClientSize);
-	}
-
+	// Keep Windowed mode; size/position already match the target monitor.
+	SlateWindow->SetWindowMode(EWindowMode::Windowed);
+	SlateWindow->MoveWindowTo(ScreenPosition);
+	SlateWindow->Resize(ClientSize);
 	SlateWindow->ShowWindow();
 	SlateWindow->BringToFront(false);
 	return true;

@@ -46,7 +46,6 @@ void AMultimonitorCaptureActor::Configure(AActor* InViewTarget, UTextureRenderTa
 
 	CaptureComponent->TextureTarget = RenderTarget;
 	SyncTransformToViewTarget();
-	CaptureComponent->CaptureScene();
 }
 
 void AMultimonitorCaptureActor::SetViewTarget(AActor* InViewTarget)
