@@ -14,11 +14,7 @@ public class Multimonitor : ModuleRules
 			"InputCore",
 			"UMG",
 			"Slate",
-			"SlateCore"
-		});
-
-		PrivateDependencyModuleNames.AddRange(new string[]
-		{
+			"SlateCore",
 			"ApplicationCore"
 		});
 	}

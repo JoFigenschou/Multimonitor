@@ -6,7 +6,7 @@
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
 #include "Framework/Application/SlateApplication.h"
-#include "Misc/DisplayMetrics.h"
+#include "GenericPlatform/GenericApplication.h"
 #include "MultimonitorCaptureActor.h"
 #include "MultimonitorLayout.h"
 #include "MultimonitorLog.h"
