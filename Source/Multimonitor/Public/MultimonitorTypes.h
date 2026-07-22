@@ -6,6 +6,7 @@
 class AActor;
 class UTextureRenderTarget2D;
 class UUserWidget;
+class UMaterialInterface;
 
 UENUM(BlueprintType)
 enum class EMultimonitorContentType : uint8
@@ -41,6 +42,19 @@ struct MULTIMONITOR_API FMultimonitorMonitorInfo
 };
 
 USTRUCT(BlueprintType)
+struct MULTIMONITOR_API FMultimonitorPostProcessEntry
+{
+	GENERATED_BODY()
+
+	/** Post-process domain material (not a UI material). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor")
+	TSoftObjectPtr<UMaterialInterface> Material;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float Weight = 1.0f;
+};
+
+USTRUCT(BlueprintType)
 struct MULTIMONITOR_API FMultimonitorSlot
 {
 	GENERATED_BODY()
@@ -64,13 +78,26 @@ struct MULTIMONITOR_API FMultimonitorSlot
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::HUD", EditConditionHides))
 	TSubclassOf<UUserWidget> HUDWidgetClass;
 
+	/**
+	 * Extra post-process materials applied on Camera captures (post-process domain).
+	 * Combined with materials already on the camera when bCopyCameraPostProcess is true.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::Camera", EditConditionHides))
+	TArray<FMultimonitorPostProcessEntry> PostProcessMaterials;
+
+	/**
+	 * When true (default), copies Post Process Settings / blendables from the Camera/CineCamera
+	 * onto the SceneCapture so materials on the camera affect Multimonitor output.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::Camera", EditConditionHides))
+	bool bCopyCameraPostProcess = true;
+
 	/** When true, the secondary window covers the entire monitor. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor")
 	bool bFullscreen = true;
 
 	/**
-	 * If false (default), slots targeting the primary / game-viewport monitor are refused.
-	 * Leave this off — using monitor 0 fullscreen will cover Play-in-Editor with a black window.
+	 * If false (default), slots targeting the monitor that hosts the game/PIE viewport are refused.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor")
 	bool bAllowPrimaryMonitor = false;

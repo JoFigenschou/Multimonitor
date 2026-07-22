@@ -95,3 +95,4 @@ BeginPlay
 - Test in **Standalone Game** if PIE is awkward with multiple windows.
 - Camera slots create a SceneCapture; heavier scenes cost more GPU per extra monitor.
 - Multiple extras use borderless windows (not exclusive fullscreen) so several can run at once.
+- **Post-process:** Multimonitor does not use the main viewport. Materials on the camera are copied onto the SceneCapture when **Copy Camera Post Process** is on (default). You can also add materials under **Post Process Materials** on the slot (must be **Post Process** domain). Use **Set Slot Post Process Materials** to change them at runtime.

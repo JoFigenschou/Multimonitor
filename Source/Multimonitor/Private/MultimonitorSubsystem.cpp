@@ -251,9 +251,29 @@ UTextureRenderTarget2D* UMultimonitorSubsystem::EnsureCameraCapture(UWorld* Worl
 		return nullptr;
 	}
 
-	CaptureActor->Configure(ViewTarget, ExistingRT, Resolution);
+	CaptureActor->Configure(
+		ViewTarget,
+		ExistingRT,
+		Resolution,
+		Slot.PostProcessMaterials,
+		Slot.bCopyCameraPostProcess);
 	CaptureActors.Add(Slot.MonitorIndex, CaptureActor);
 	return CaptureActor->GetRenderTarget();
+}
+
+bool UMultimonitorSubsystem::SetSlotPostProcessMaterials(int32 MonitorIndex, const TArray<FMultimonitorPostProcessEntry>& Materials)
+{
+	if (TObjectPtr<AMultimonitorCaptureActor>* Found = CaptureActors.Find(MonitorIndex))
+	{
+		if (AMultimonitorCaptureActor* Capture = Found->Get())
+		{
+			Capture->SetPostProcessMaterials(Materials);
+			return true;
+		}
+	}
+
+	UE_LOG(LogMultimonitor, Warning, TEXT("Multimonitor: No camera capture on monitor %d to update post-process."), MonitorIndex);
+	return false;
 }
 
 UUserWidget* UMultimonitorSubsystem::BuildContentWidget(UWorld* World, const FMultimonitorSlot& Slot, const FMultimonitorMonitorInfo& MonitorInfo)

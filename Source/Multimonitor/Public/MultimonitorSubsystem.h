@@ -35,6 +35,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Multimonitor")
 	bool SetSlotContent(const FMultimonitorSlot& Slot);
 
+	/** Live-update post-process materials on an existing Camera slot without recreating the window. */
+	UFUNCTION(BlueprintCallable, Category = "Multimonitor")
+	bool SetSlotPostProcessMaterials(int32 MonitorIndex, const TArray<FMultimonitorPostProcessEntry>& Materials);
+
 	UFUNCTION(BlueprintPure, Category = "Multimonitor")
 	UMultimonitorWindow* GetWindowForMonitor(int32 MonitorIndex) const;
 

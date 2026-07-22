@@ -5,6 +5,7 @@
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "GameFramework/Actor.h"
+#include "Materials/MaterialInterface.h"
 
 AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 {
@@ -19,11 +20,20 @@ AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 	CaptureComponent->bAlwaysPersistRenderingState = true;
 	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
 	CaptureComponent->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
+	CaptureComponent->PostProcessBlendWeight = 1.0f;
+	CaptureComponent->ShowFlags.SetPostProcessing(true);
 }
 
-void AMultimonitorCaptureActor::Configure(AActor* InViewTarget, UTextureRenderTarget2D* InRenderTarget, const FIntPoint& FallbackResolution)
+void AMultimonitorCaptureActor::Configure(
+	AActor* InViewTarget,
+	UTextureRenderTarget2D* InRenderTarget,
+	const FIntPoint& FallbackResolution,
+	const TArray<FMultimonitorPostProcessEntry>& InPostProcessMaterials,
+	bool bInCopyCameraPostProcess)
 {
 	ViewTarget = InViewTarget;
+	ExtraPostProcessMaterials = InPostProcessMaterials;
+	bCopyCameraPostProcess = bInCopyCameraPostProcess;
 
 	if (InRenderTarget)
 	{
@@ -46,18 +56,27 @@ void AMultimonitorCaptureActor::Configure(AActor* InViewTarget, UTextureRenderTa
 
 	CaptureComponent->TextureTarget = RenderTarget;
 	SyncTransformToViewTarget();
+	ApplyPostProcess();
 }
 
 void AMultimonitorCaptureActor::SetViewTarget(AActor* InViewTarget)
 {
 	ViewTarget = InViewTarget;
 	SyncTransformToViewTarget();
+	ApplyPostProcess();
+}
+
+void AMultimonitorCaptureActor::SetPostProcessMaterials(const TArray<FMultimonitorPostProcessEntry>& InPostProcessMaterials)
+{
+	ExtraPostProcessMaterials = InPostProcessMaterials;
+	ApplyPostProcess();
 }
 
 void AMultimonitorCaptureActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
 	SyncTransformToViewTarget();
+	ApplyPostProcess();
 }
 
 void AMultimonitorCaptureActor::SyncTransformToViewTarget()
@@ -82,4 +101,47 @@ void AMultimonitorCaptureActor::SyncTransformToViewTarget()
 	}
 
 	CaptureComponent->SetWorldTransform(ViewTarget->GetActorTransform());
+}
+
+void AMultimonitorCaptureActor::ApplyPostProcess()
+{
+	if (!CaptureComponent)
+	{
+		return;
+	}
+
+	CaptureComponent->ShowFlags.SetPostProcessing(true);
+
+	FPostProcessSettings Settings;
+	float BlendWeight = 1.0f;
+
+	if (bCopyCameraPostProcess && ViewTarget)
+	{
+		if (UCameraComponent* CameraComp = ViewTarget->FindComponentByClass<UCameraComponent>())
+		{
+			Settings = CameraComp->PostProcessSettings;
+			BlendWeight = CameraComp->PostProcessBlendWeight;
+		}
+	}
+
+	CaptureComponent->PostProcessSettings = Settings;
+	CaptureComponent->PostProcessBlendWeight = BlendWeight;
+
+	for (const FMultimonitorPostProcessEntry& Entry : ExtraPostProcessMaterials)
+	{
+		UMaterialInterface* Material = nullptr;
+		if (!Entry.Material.IsNull())
+		{
+			Material = Entry.Material.Get();
+			if (!Material)
+			{
+				Material = Entry.Material.LoadSynchronous();
+			}
+		}
+
+		if (Material)
+		{
+			CaptureComponent->AddOrUpdateBlendable(Material, Entry.Weight);
+		}
+	}
 }
