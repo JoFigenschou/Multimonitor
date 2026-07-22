@@ -9,10 +9,7 @@ class UTextureRenderTarget2D;
 class UMaterialInterface;
 class UMaterialInstanceDynamic;
 
-/**
- * Full-bleed widget that displays a render target.
- * Optionally applies a UI-domain material that samples the RT.
- */
+/** Full-bleed widget that displays a render target (optionally via a UI material). */
 UCLASS(Blueprintable)
 class MULTIMONITOR_API UMultimonitorRenderTargetWidget : public UUserWidget
 {

@@ -7,10 +7,11 @@
 
 class USceneCaptureComponent2D;
 class UTextureRenderTarget2D;
+class UCameraComponent;
 
 /**
  * Transient helper that captures a view for a Multimonitor camera slot.
- * Syncs transform and post-process from a target camera when assigned.
+ * Each instance owns (or uniquely binds) one render target — never share RTs across slots.
  */
 UCLASS(NotBlueprintable, NotPlaceable, Transient)
 class MULTIMONITOR_API AMultimonitorCaptureActor : public AActor
@@ -21,6 +22,7 @@ public:
 	AMultimonitorCaptureActor();
 
 	void Configure(
+		int32 InMonitorIndex,
 		AActor* InViewTarget,
 		UTextureRenderTarget2D* InRenderTarget,
 		const FIntPoint& FallbackResolution,
@@ -32,6 +34,7 @@ public:
 
 	USceneCaptureComponent2D* GetCaptureComponent() const { return CaptureComponent; }
 	UTextureRenderTarget2D* GetRenderTarget() const { return RenderTarget; }
+	int32 GetMonitorIndex() const { return MonitorIndex; }
 
 protected:
 	virtual void Tick(float DeltaSeconds) override;
@@ -51,8 +54,11 @@ protected:
 	UPROPERTY(Transient)
 	TArray<FMultimonitorPostProcessEntry> ExtraPostProcessMaterials;
 
+	int32 MonitorIndex = INDEX_NONE;
 	bool bCopyCameraPostProcess = true;
 
 	void SyncTransformToViewTarget();
 	void ApplyPostProcess();
+	void TrySyncExposureFromPlayerView(UCameraComponent* CameraComp);
+	UTextureRenderTarget2D* CreateOwnedRenderTarget(const FIntPoint& Resolution);
 };

@@ -1,15 +1,18 @@
 #include "MultimonitorSubsystem.h"
 
 #include "Blueprint/UserWidget.h"
+#include "Components/SceneCaptureComponent2D.h"
 #include "Engine/Engine.h"
 #include "Engine/GameViewportClient.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "Framework/Application/SlateApplication.h"
 #include "GenericPlatform/GenericApplication.h"
 #include "MultimonitorCaptureActor.h"
 #include "MultimonitorLayout.h"
 #include "MultimonitorLog.h"
+#include "MultimonitorPostProcess.h"
 #include "MultimonitorRenderTargetWidget.h"
 #include "MultimonitorWindow.h"
 #include "Widgets/SWindow.h"
@@ -159,8 +162,17 @@ void UMultimonitorSubsystem::ClearLayout()
 		DestroyCaptureForMonitor(MonitorIndex);
 	}
 
+	// Also clear external-capture-only slots (no window key).
+	TArray<int32> ExternalIndices;
+	ExternalCaptures.GetKeys(ExternalIndices);
+	for (const int32 MonitorIndex : ExternalIndices)
+	{
+		DestroyCaptureForMonitor(MonitorIndex);
+	}
+
 	Windows.Empty();
 	CaptureActors.Empty();
+	ExternalCaptures.Empty();
 	ActiveLayout = nullptr;
 }
 
@@ -200,6 +212,50 @@ void UMultimonitorSubsystem::DestroyCaptureForMonitor(int32 MonitorIndex)
 		}
 		CaptureActors.Remove(MonitorIndex);
 	}
+
+	ExternalCaptures.Remove(MonitorIndex);
+}
+
+UTextureRenderTarget2D* UMultimonitorSubsystem::GetSlotRenderTarget(int32 MonitorIndex) const
+{
+	if (const TObjectPtr<AMultimonitorCaptureActor>* Found = CaptureActors.Find(MonitorIndex))
+	{
+		if (const AMultimonitorCaptureActor* Capture = Found->Get())
+		{
+			return Capture->GetRenderTarget();
+		}
+	}
+
+	if (const TObjectPtr<USceneCaptureComponent2D>* Ext = ExternalCaptures.Find(MonitorIndex))
+	{
+		if (const USceneCaptureComponent2D* Capture = Ext->Get())
+		{
+			return Capture->TextureTarget;
+		}
+	}
+
+	return nullptr;
+}
+
+bool UMultimonitorSubsystem::IsRenderTargetUsedByOtherSlot(UTextureRenderTarget2D* RenderTarget, int32 ExceptMonitorIndex) const
+{
+	if (!RenderTarget)
+	{
+		return false;
+	}
+
+	for (const TPair<int32, TObjectPtr<AMultimonitorCaptureActor>>& Pair : CaptureActors)
+	{
+		if (Pair.Key == ExceptMonitorIndex || !Pair.Value)
+		{
+			continue;
+		}
+		if (Pair.Value->GetRenderTarget() == RenderTarget)
+		{
+			return true;
+		}
+	}
+	return false;
 }
 
 UTextureRenderTarget2D* UMultimonitorSubsystem::EnsureCameraCapture(UWorld* World, const FMultimonitorSlot& Slot, const FMultimonitorMonitorInfo& MonitorInfo)
@@ -231,6 +287,74 @@ UTextureRenderTarget2D* UMultimonitorSubsystem::EnsureCameraCapture(UWorld* Worl
 		}
 	}
 
+	auto AdoptLevelCapture = [this, &Slot](USceneCaptureComponent2D* LevelCapture, const TCHAR* Reason) -> UTextureRenderTarget2D*
+	{
+		if (!LevelCapture || !LevelCapture->TextureTarget)
+		{
+			return nullptr;
+		}
+
+		MultimonitorPostProcess::ApplyMaterials(LevelCapture, Slot.PostProcessMaterials);
+		ExternalCaptures.Add(Slot.MonitorIndex, LevelCapture);
+
+		UE_LOG(LogMultimonitor, Log,
+			TEXT("Multimonitor: Monitor %d adopting level SceneCapture '%s' -> RT '%s' (%s)."),
+			Slot.MonitorIndex,
+			*LevelCapture->GetOwner()->GetName(),
+			*LevelCapture->TextureTarget->GetName(),
+			Reason);
+
+		return LevelCapture->TextureTarget;
+	};
+
+	// Prefer a level SceneCapture on the CameraActor (matches editor Scene Capture workflow).
+	if (ViewTarget)
+	{
+			if (USceneCaptureComponent2D* LevelCapture = ViewTarget->FindComponentByClass<USceneCaptureComponent2D>())
+			{
+				if (ExistingRT)
+				{
+					LevelCapture->TextureTarget = ExistingRT;
+				}
+
+				if (!LevelCapture->TextureTarget)
+				{
+					UE_LOG(LogMultimonitor, Warning,
+						TEXT("Multimonitor: SceneCapture on '%s' has no Texture Target. Assign one on the component or on the Multimonitor slot."),
+						*ViewTarget->GetName());
+					return nullptr;
+				}
+
+				MultimonitorPostProcess::ConfigureForViewportMatch(LevelCapture);
+				return AdoptLevelCapture(LevelCapture, TEXT("CameraActor"));
+			}
+	}
+
+	// If the slot RT is already written by a level SceneCapture, use that capture.
+	// Do NOT spawn a second capture / unique RT — that was showing black while Alpa had content.
+	if (ExistingRT)
+	{
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			if (USceneCaptureComponent2D* LevelCapture = It->FindComponentByClass<USceneCaptureComponent2D>())
+			{
+				if (LevelCapture->TextureTarget == ExistingRT)
+				{
+					return AdoptLevelCapture(LevelCapture, TEXT("shared RT"));
+				}
+			}
+		}
+	}
+
+	if (ExistingRT && IsRenderTargetUsedByOtherSlot(ExistingRT, Slot.MonitorIndex))
+	{
+		UE_LOG(LogMultimonitor, Warning,
+			TEXT("Multimonitor: Render target '%s' is already used by another Multimonitor slot. Allocating a unique RT for monitor %d."),
+			*ExistingRT->GetName(),
+			Slot.MonitorIndex);
+		ExistingRT = nullptr;
+	}
+
 	FIntPoint Resolution = Slot.CaptureResolution;
 	if (Resolution.X <= 0 || Resolution.Y <= 0)
 	{
@@ -240,6 +364,7 @@ UTextureRenderTarget2D* UMultimonitorSubsystem::EnsureCameraCapture(UWorld* Worl
 	FActorSpawnParameters SpawnParams;
 	SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
 	SpawnParams.ObjectFlags |= RF_Transient;
+	SpawnParams.Name = *FString::Printf(TEXT("MultimonitorCapture_M%d"), Slot.MonitorIndex);
 
 	AMultimonitorCaptureActor* CaptureActor = World->SpawnActor<AMultimonitorCaptureActor>(
 		AMultimonitorCaptureActor::StaticClass(),
@@ -248,17 +373,86 @@ UTextureRenderTarget2D* UMultimonitorSubsystem::EnsureCameraCapture(UWorld* Worl
 
 	if (!CaptureActor)
 	{
+		SpawnParams.Name = NAME_None;
+		CaptureActor = World->SpawnActor<AMultimonitorCaptureActor>(
+			AMultimonitorCaptureActor::StaticClass(),
+			FTransform::Identity,
+			SpawnParams);
+	}
+
+	if (!CaptureActor)
+	{
 		return nullptr;
 	}
 
 	CaptureActor->Configure(
+		Slot.MonitorIndex,
 		ViewTarget,
 		ExistingRT,
 		Resolution,
 		Slot.PostProcessMaterials,
 		Slot.bCopyCameraPostProcess);
 	CaptureActors.Add(Slot.MonitorIndex, CaptureActor);
-	return CaptureActor->GetRenderTarget();
+
+	UTextureRenderTarget2D* BoundRT = CaptureActor->GetRenderTarget();
+	UE_LOG(LogMultimonitor, Log,
+		TEXT("Multimonitor: Slot monitor %d bound to RT '%s' (Multimonitor-owned capture)."),
+		Slot.MonitorIndex,
+		BoundRT ? *BoundRT->GetName() : TEXT("None"));
+
+	return BoundRT;
+}
+
+void UMultimonitorSubsystem::ApplyPostProcessToRenderTargetCaptures(
+	UWorld* World,
+	UTextureRenderTarget2D* RenderTarget,
+	const TArray<FMultimonitorPostProcessEntry>& Materials,
+	int32 MonitorIndex)
+{
+	if (!World || !RenderTarget || Materials.Num() == 0)
+	{
+		return;
+	}
+
+	int32 Found = 0;
+	USceneCaptureComponent2D* FirstCapture = nullptr;
+
+	for (TActorIterator<AActor> It(World); It; ++It)
+	{
+		if (USceneCaptureComponent2D* LevelCapture = It->FindComponentByClass<USceneCaptureComponent2D>())
+		{
+			if (LevelCapture->TextureTarget == RenderTarget)
+			{
+				MultimonitorPostProcess::ApplyMaterials(LevelCapture, Materials);
+				++Found;
+				if (!FirstCapture)
+				{
+					FirstCapture = LevelCapture;
+				}
+			}
+		}
+	}
+
+	if (FirstCapture)
+	{
+		ExternalCaptures.Add(MonitorIndex, FirstCapture);
+	}
+
+	if (Found == 0)
+	{
+		UE_LOG(LogMultimonitor, Warning,
+			TEXT("Multimonitor: Slot monitor %d has PostProcessMaterials but no level SceneCapture writes RT '%s'. Put PP materials on the SceneCapture itself, or set CameraActor to that capture."),
+			MonitorIndex,
+			*RenderTarget->GetName());
+	}
+	else
+	{
+		UE_LOG(LogMultimonitor, Log,
+			TEXT("Multimonitor: Applied PostProcessMaterials to %d SceneCapture(s) writing '%s' (monitor %d)."),
+			Found,
+			*RenderTarget->GetName(),
+			MonitorIndex);
+	}
 }
 
 bool UMultimonitorSubsystem::SetSlotPostProcessMaterials(int32 MonitorIndex, const TArray<FMultimonitorPostProcessEntry>& Materials)
@@ -272,7 +466,16 @@ bool UMultimonitorSubsystem::SetSlotPostProcessMaterials(int32 MonitorIndex, con
 		}
 	}
 
-	UE_LOG(LogMultimonitor, Warning, TEXT("Multimonitor: No camera capture on monitor %d to update post-process."), MonitorIndex);
+	if (TObjectPtr<USceneCaptureComponent2D>* Ext = ExternalCaptures.Find(MonitorIndex))
+	{
+		if (USceneCaptureComponent2D* Capture = Ext->Get())
+		{
+			MultimonitorPostProcess::ApplyMaterials(Capture, Materials);
+			return true;
+		}
+	}
+
+	UE_LOG(LogMultimonitor, Warning, TEXT("Multimonitor: No SceneCapture on monitor %d to update post-process."), MonitorIndex);
 	return false;
 }
 
@@ -318,6 +521,7 @@ UUserWidget* UMultimonitorSubsystem::BuildContentWidget(UWorld* World, const FMu
 
 		if (Viewer)
 		{
+			ApplyPostProcessToRenderTargetCaptures(World, RT, Slot.PostProcessMaterials, Slot.MonitorIndex);
 			Viewer->SetRenderTarget(RT);
 		}
 		return Viewer;

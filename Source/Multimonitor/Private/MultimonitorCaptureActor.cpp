@@ -2,27 +2,13 @@
 
 #include "CineCameraComponent.h"
 #include "Camera/CameraComponent.h"
+#include "Camera/PlayerCameraManager.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "GameFramework/Actor.h"
-#include "Materials/MaterialInterface.h"
-
-namespace MultimonitorCapturePrivate
-{
-	void ApplyCaptureSafeExposure(FPostProcessSettings& Settings)
-	{
-		// CineCamera physical/auto exposure often evaluates to black on SceneCapture.
-		Settings.bOverride_AutoExposureMethod = true;
-		Settings.AutoExposureMethod = EAutoExposureMethod::AEM_Manual;
-		Settings.bOverride_AutoExposureBias = true;
-		Settings.bOverride_AutoExposureApplyPhysicalCameraExposure = true;
-		Settings.AutoExposureApplyPhysicalCameraExposure = false;
-		Settings.bOverride_AutoExposureMinBrightness = true;
-		Settings.bOverride_AutoExposureMaxBrightness = true;
-		Settings.AutoExposureMinBrightness = 1.0f;
-		Settings.AutoExposureMaxBrightness = 1.0f;
-	}
-}
+#include "GameFramework/PlayerController.h"
+#include "MultimonitorLog.h"
+#include "MultimonitorPostProcess.h"
 
 AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 {
@@ -35,47 +21,65 @@ AMultimonitorCaptureActor::AMultimonitorCaptureActor()
 	CaptureComponent->bCaptureEveryFrame = true;
 	CaptureComponent->bCaptureOnMovement = true;
 	CaptureComponent->bAlwaysPersistRenderingState = true;
-	// LDR matches UMG display and post-process materials reliably (HDR→RGBA8 often goes black).
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
 	CaptureComponent->PrimitiveRenderMode = ESceneCapturePrimitiveRenderMode::PRM_RenderScenePrimitives;
 	CaptureComponent->PostProcessBlendWeight = 1.0f;
-	CaptureComponent->ShowFlags.SetPostProcessing(true);
+	MultimonitorPostProcess::ConfigureForViewportMatch(CaptureComponent);
+}
+
+UTextureRenderTarget2D* AMultimonitorCaptureActor::CreateOwnedRenderTarget(const FIntPoint& Resolution)
+{
+	const int32 SizeX = Resolution.X > 0 ? Resolution.X : 1920;
+	const int32 SizeY = Resolution.Y > 0 ? Resolution.Y : 1080;
+
+	const FName RTName = *FString::Printf(TEXT("MultimonitorRT_M%d"), MonitorIndex);
+	UTextureRenderTarget2D* NewRT = NewObject<UTextureRenderTarget2D>(this, RTName, RF_Transient);
+	NewRT->ClearColor = FLinearColor::Black;
+	NewRT->bAutoGenerateMips = false;
+	// 16-bit keeps tonemapped FinalToneCurveHDR with less banding than RGBA8.
+	NewRT->RenderTargetFormat = RTF_RGBA16f;
+	NewRT->InitAutoFormat(SizeX, SizeY);
+	NewRT->UpdateResourceImmediate(true);
+	return NewRT;
 }
 
 void AMultimonitorCaptureActor::Configure(
+	int32 InMonitorIndex,
 	AActor* InViewTarget,
 	UTextureRenderTarget2D* InRenderTarget,
 	const FIntPoint& FallbackResolution,
 	const TArray<FMultimonitorPostProcessEntry>& InPostProcessMaterials,
 	bool bInCopyCameraPostProcess)
 {
+	MonitorIndex = InMonitorIndex;
 	ViewTarget = InViewTarget;
 	ExtraPostProcessMaterials = InPostProcessMaterials;
 	bCopyCameraPostProcess = bInCopyCameraPostProcess;
 
+	OwnedRenderTarget = nullptr;
+
 	if (InRenderTarget)
 	{
 		RenderTarget = InRenderTarget;
-		OwnedRenderTarget = nullptr;
 	}
 	else
 	{
-		const int32 SizeX = FallbackResolution.X > 0 ? FallbackResolution.X : 1920;
-		const int32 SizeY = FallbackResolution.Y > 0 ? FallbackResolution.Y : 1080;
-
-		OwnedRenderTarget = NewObject<UTextureRenderTarget2D>(this, NAME_None, RF_Transient);
-		OwnedRenderTarget->ClearColor = FLinearColor::Black;
-		OwnedRenderTarget->bAutoGenerateMips = false;
-		OwnedRenderTarget->RenderTargetFormat = RTF_RGBA8;
-		OwnedRenderTarget->bForceLinearGamma = false;
-		OwnedRenderTarget->InitAutoFormat(SizeX, SizeY);
-		OwnedRenderTarget->UpdateResourceImmediate(true);
+		OwnedRenderTarget = CreateOwnedRenderTarget(FallbackResolution);
 		RenderTarget = OwnedRenderTarget;
 	}
 
 	CaptureComponent->TextureTarget = RenderTarget;
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
-	CaptureComponent->ShowFlags.SetPostProcessing(true);
+	MultimonitorPostProcess::ConfigureForViewportMatch(CaptureComponent);
+	CaptureComponent->SetCaptureSortPriority(1000 + MonitorIndex);
+
+	UE_LOG(LogMultimonitor, Log,
+		TEXT("Multimonitor: Capture for monitor %d -> RT '%s' (%dx%d) viewportMatch=1 ptr=%p"),
+		MonitorIndex,
+		RenderTarget ? *RenderTarget->GetName() : TEXT("None"),
+		RenderTarget ? RenderTarget->SizeX : 0,
+		RenderTarget ? RenderTarget->SizeY : 0,
+		RenderTarget.Get());
+
 	SyncTransformToViewTarget();
 	ApplyPostProcess();
 }
@@ -96,8 +100,59 @@ void AMultimonitorCaptureActor::SetPostProcessMaterials(const TArray<FMultimonit
 void AMultimonitorCaptureActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
-	// Only sync transform each frame. Re-applying full PP every tick can black out the capture.
 	SyncTransformToViewTarget();
+
+	if (bCopyCameraPostProcess && CaptureComponent && ViewTarget)
+	{
+		if (UCameraComponent* CameraComp = ViewTarget->FindComponentByClass<UCameraComponent>())
+		{
+			MultimonitorPostProcess::SyncExposureFromCamera(CaptureComponent, CameraComp);
+			TrySyncExposureFromPlayerView(CameraComp);
+		}
+	}
+}
+
+void AMultimonitorCaptureActor::TrySyncExposureFromPlayerView(UCameraComponent* CameraComp)
+{
+	UWorld* World = GetWorld();
+	if (!World || !CaptureComponent || !ViewTarget)
+	{
+		return;
+	}
+
+	APlayerController* PC = World->GetFirstPlayerController();
+	if (!PC || !PC->PlayerCameraManager)
+	{
+		return;
+	}
+
+	const AActor* PlayerViewTarget = PC->GetViewTarget();
+	if (PlayerViewTarget != ViewTarget && PlayerViewTarget != ViewTarget->GetOwner())
+	{
+		// Secondary camera — keep its own exposure, don't steal the player view's.
+		return;
+	}
+
+	const FMinimalViewInfo& Cache = PC->PlayerCameraManager->GetCameraCacheView();
+	FPostProcessSettings& Dst = CaptureComponent->PostProcessSettings;
+
+	Dst.bOverride_AutoExposureBias = true;
+	Dst.AutoExposureBias = Cache.PostProcessSettings.AutoExposureBias;
+
+	if (Cache.PostProcessSettings.bOverride_AutoExposureMethod)
+	{
+		Dst.bOverride_AutoExposureMethod = true;
+		Dst.AutoExposureMethod = Cache.PostProcessSettings.AutoExposureMethod;
+	}
+
+	if (CameraComp)
+	{
+		CaptureComponent->PostProcessBlendWeight = FMath::Clamp(CameraComp->PostProcessBlendWeight, 0.0f, 1.0f);
+		if (CaptureComponent->PostProcessBlendWeight <= KINDA_SMALL_NUMBER)
+		{
+			CaptureComponent->PostProcessBlendWeight = 1.0f;
+		}
+	}
 }
 
 void AMultimonitorCaptureActor::SyncTransformToViewTarget()
@@ -109,15 +164,20 @@ void AMultimonitorCaptureActor::SyncTransformToViewTarget()
 
 	if (UCineCameraComponent* CineCamera = ViewTarget->FindComponentByClass<UCineCameraComponent>())
 	{
-		CaptureComponent->SetWorldTransform(CineCamera->GetComponentTransform());
-		CaptureComponent->FOVAngle = CineCamera->GetHorizontalFieldOfView();
+		FMinimalViewInfo ViewInfo;
+		CineCamera->GetCameraView(0.0f, ViewInfo);
+		CaptureComponent->SetWorldLocationAndRotation(ViewInfo.Location, ViewInfo.Rotation);
+		CaptureComponent->FOVAngle = ViewInfo.FOV;
+		CaptureComponent->bUseCustomProjectionMatrix = false;
 		return;
 	}
 
 	if (UCameraComponent* CameraComp = ViewTarget->FindComponentByClass<UCameraComponent>())
 	{
-		CaptureComponent->SetWorldTransform(CameraComp->GetComponentTransform());
-		CaptureComponent->FOVAngle = CameraComp->FieldOfView;
+		FMinimalViewInfo ViewInfo;
+		CameraComp->GetCameraView(0.0f, ViewInfo);
+		CaptureComponent->SetWorldLocationAndRotation(ViewInfo.Location, ViewInfo.Rotation);
+		CaptureComponent->FOVAngle = ViewInfo.FOV;
 		return;
 	}
 
@@ -131,40 +191,23 @@ void AMultimonitorCaptureActor::ApplyPostProcess()
 		return;
 	}
 
-	CaptureComponent->ShowFlags.SetPostProcessing(true);
-	CaptureComponent->CaptureSource = ESceneCaptureSource::SCS_FinalColorLDR;
+	MultimonitorPostProcess::ConfigureForViewportMatch(CaptureComponent);
 
 	FPostProcessSettings Settings;
-	MultimonitorCapturePrivate::ApplyCaptureSafeExposure(Settings);
 
 	if (bCopyCameraPostProcess && ViewTarget)
 	{
 		if (UCameraComponent* CameraComp = ViewTarget->FindComponentByClass<UCameraComponent>())
 		{
-			// Copy blendables (PP materials) only — full camera PP includes exposure that blacks out captures.
-			Settings.WeightedBlendables = CameraComp->PostProcessSettings.WeightedBlendables;
-			MultimonitorCapturePrivate::ApplyCaptureSafeExposure(Settings);
+			MultimonitorPostProcess::CopyCameraLookToSettings(CameraComp, Settings);
+			CaptureComponent->PostProcessBlendWeight = FMath::Clamp(CameraComp->PostProcessBlendWeight, 0.0f, 1.0f);
+			if (CaptureComponent->PostProcessBlendWeight <= KINDA_SMALL_NUMBER)
+			{
+				CaptureComponent->PostProcessBlendWeight = 1.0f;
+			}
 		}
 	}
 
 	CaptureComponent->PostProcessSettings = Settings;
-	CaptureComponent->PostProcessBlendWeight = 1.0f;
-
-	for (const FMultimonitorPostProcessEntry& Entry : ExtraPostProcessMaterials)
-	{
-		UMaterialInterface* Material = nullptr;
-		if (!Entry.Material.IsNull())
-		{
-			Material = Entry.Material.Get();
-			if (!Material)
-			{
-				Material = Entry.Material.LoadSynchronous();
-			}
-		}
-
-		if (Material)
-		{
-			CaptureComponent->AddOrUpdateBlendable(Material, Entry.Weight);
-		}
-	}
+	MultimonitorPostProcess::ApplyMaterials(CaptureComponent, ExtraPostProcessMaterials);
 }

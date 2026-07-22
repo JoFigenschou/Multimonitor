@@ -1,6 +1,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Engine/EngineTypes.h"
 #include "MultimonitorTypes.generated.h"
 
 class AActor;
@@ -79,15 +80,17 @@ struct MULTIMONITOR_API FMultimonitorSlot
 	TSubclassOf<UUserWidget> HUDWidgetClass;
 
 	/**
-	 * Extra post-process materials applied on Camera captures (post-process domain).
-	 * Combined with materials already on the camera when bCopyCameraPostProcess is true.
+	 * Extra post-process materials applied on SceneCapture (Post Process domain).
+	 * For Camera slots: applied to Multimonitor's capture, or to a level SceneCapture if CameraActor has one.
+	 * For RenderTarget slots: applied to every level SceneCapture that writes this render target.
+	 * Combined with camera blendables when bCopyCameraPostProcess is true (Camera path).
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::Camera", EditConditionHides))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::Camera || ContentType == EMultimonitorContentType::RenderTarget", EditConditionHides))
 	TArray<FMultimonitorPostProcessEntry> PostProcessMaterials;
 
 	/**
-	 * When true (default), copies Post Process Settings / blendables from the Camera/CineCamera
-	 * onto the SceneCapture so materials on the camera affect Multimonitor output.
+	 * When true (default), copies the Camera/CineCamera post-process look (blendables + exposure)
+	 * onto the SceneCapture and keeps exposure in sync each tick for a closer viewport match.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::Camera", EditConditionHides))
 	bool bCopyCameraPostProcess = true;

@@ -17,10 +17,7 @@ void UMultimonitorRenderTargetWidget::NativeOnInitialized()
 void UMultimonitorRenderTargetWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-
-	// Ensure NativeTick runs for C++-only widgets (keeps RT brush updating).
 	bHasScriptImplementedTick = true;
-
 	EnsureDisplayImage();
 	ApplyToImage();
 }
@@ -28,8 +25,6 @@ void UMultimonitorRenderTargetWidget::NativeConstruct()
 void UMultimonitorRenderTargetWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
 {
 	Super::NativeTick(MyGeometry, InDeltaTime);
-
-	// Slate often fails to refresh RT brushes unless reapplied; keep the image live.
 	if (RenderTarget && DisplayImage)
 	{
 		ApplyToImage();
@@ -104,7 +99,7 @@ void UMultimonitorRenderTargetWidget::ApplyToImage()
 
 	if (DisplayMaterial && RenderTarget)
 	{
-		if (!DisplayMID)
+		if (!DisplayMID || DisplayMID->Parent != DisplayMaterial)
 		{
 			DisplayMID = UMaterialInstanceDynamic::Create(DisplayMaterial, this);
 		}
