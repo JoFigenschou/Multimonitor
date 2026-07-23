@@ -36,7 +36,6 @@ UTextureRenderTarget2D* AMultimonitorCaptureActor::CreateOwnedRenderTarget(const
 	UTextureRenderTarget2D* NewRT = NewObject<UTextureRenderTarget2D>(this, RTName, RF_Transient);
 	NewRT->ClearColor = FLinearColor::Black;
 	NewRT->bAutoGenerateMips = false;
-	// 16-bit keeps tonemapped FinalToneCurveHDR with less banding than RGBA8.
 	NewRT->RenderTargetFormat = RTF_RGBA16f;
 	NewRT->InitAutoFormat(SizeX, SizeY);
 	NewRT->UpdateResourceImmediate(true);
@@ -49,12 +48,14 @@ void AMultimonitorCaptureActor::Configure(
 	UTextureRenderTarget2D* InRenderTarget,
 	const FIntPoint& FallbackResolution,
 	const TArray<FMultimonitorPostProcessEntry>& InPostProcessMaterials,
-	bool bInCopyCameraPostProcess)
+	bool bInCopyCameraPostProcess,
+	bool /*bInVisualizeAlpha*/)
 {
 	MonitorIndex = InMonitorIndex;
 	ViewTarget = InViewTarget;
 	ExtraPostProcessMaterials = InPostProcessMaterials;
 	bCopyCameraPostProcess = bInCopyCameraPostProcess;
+	bVisualizeAlpha = false;
 
 	OwnedRenderTarget = nullptr;
 
@@ -73,7 +74,7 @@ void AMultimonitorCaptureActor::Configure(
 	CaptureComponent->SetCaptureSortPriority(1000 + MonitorIndex);
 
 	UE_LOG(LogMultimonitor, Log,
-		TEXT("Multimonitor: Capture for monitor %d -> RT '%s' (%dx%d) viewportMatch=1 ptr=%p"),
+		TEXT("Multimonitor: Capture for monitor %d -> RT '%s' (%dx%d) ptr=%p"),
 		MonitorIndex,
 		RenderTarget ? *RenderTarget->GetName() : TEXT("None"),
 		RenderTarget ? RenderTarget->SizeX : 0,

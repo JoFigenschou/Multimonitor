@@ -80,6 +80,17 @@ struct MULTIMONITOR_API FMultimonitorSlot
 	TSubclassOf<UUserWidget> HUDWidgetClass;
 
 	/**
+	 * Display the render target alpha channel as grayscale RGB (A copied into R,G,B).
+	 * For SceneColorHDR Inv Opacity, leave Invert Alpha on so foreground opacity reads correctly.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "ContentType == EMultimonitorContentType::Camera || ContentType == EMultimonitorContentType::RenderTarget", EditConditionHides))
+	bool bVisualizeAlpha = false;
+
+	/** When Visualize Alpha is on: invert A (Inv Opacity → opacity). */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Multimonitor", meta = (EditCondition = "bVisualizeAlpha", EditConditionHides))
+	bool bInvertAlpha = true;
+
+	/**
 	 * Extra post-process materials applied on SceneCapture (Post Process domain).
 	 * For Camera slots: applied to Multimonitor's capture, or to a level SceneCapture if CameraActor has one.
 	 * For RenderTarget slots: applied to every level SceneCapture that writes this render target.

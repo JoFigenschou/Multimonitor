@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Tickable.h"
 #include "MultimonitorTypes.h"
 #include "MultimonitorSubsystem.generated.h"
 
@@ -13,13 +14,20 @@ class UUserWidget;
 class USceneCaptureComponent2D;
 
 UCLASS()
-class MULTIMONITOR_API UMultimonitorSubsystem : public UGameInstanceSubsystem
+class MULTIMONITOR_API UMultimonitorSubsystem : public UGameInstanceSubsystem, public FTickableGameObject
 {
 	GENERATED_BODY()
 
 public:
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+
+	// FTickableGameObject — drives alpha viz; external SWindow widgets do not NativeTick.
+	virtual void Tick(float DeltaTime) override;
+	virtual TStatId GetStatId() const override;
+	virtual bool IsTickable() const override;
+	virtual bool IsTickableInEditor() const override { return false; }
+	virtual bool IsTickableWhenPaused() const override { return true; }
 
 	UFUNCTION(BlueprintPure, Category = "Multimonitor")
 	int32 GetMonitorCount() const;

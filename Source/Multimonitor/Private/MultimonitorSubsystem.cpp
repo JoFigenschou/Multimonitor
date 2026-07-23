@@ -28,6 +28,36 @@ void UMultimonitorSubsystem::Deinitialize()
 	Super::Deinitialize();
 }
 
+void UMultimonitorSubsystem::Tick(float DeltaTime)
+{
+	for (const TPair<int32, TObjectPtr<UMultimonitorWindow>>& Pair : Windows)
+	{
+		UMultimonitorWindow* Window = Pair.Value;
+		if (!Window)
+		{
+			continue;
+		}
+
+		if (UMultimonitorRenderTargetWidget* Viewer = Cast<UMultimonitorRenderTargetWidget>(Window->GetContentWidget()))
+		{
+			if (Viewer->WantsAlphaVisualization())
+			{
+				Viewer->RefreshFromSubsystem();
+			}
+		}
+	}
+}
+
+TStatId UMultimonitorSubsystem::GetStatId() const
+{
+	RETURN_QUICK_DECLARE_CYCLE_STAT(UMultimonitorSubsystem, STATGROUP_Tickables);
+}
+
+bool UMultimonitorSubsystem::IsTickable() const
+{
+	return !HasAnyFlags(RF_ClassDefaultObject) && Windows.Num() > 0;
+}
+
 int32 UMultimonitorSubsystem::GetMonitorCount() const
 {
 	FDisplayMetrics DisplayMetrics;
@@ -391,7 +421,8 @@ UTextureRenderTarget2D* UMultimonitorSubsystem::EnsureCameraCapture(UWorld* Worl
 		ExistingRT,
 		Resolution,
 		Slot.PostProcessMaterials,
-		Slot.bCopyCameraPostProcess);
+		Slot.bCopyCameraPostProcess,
+		Slot.bVisualizeAlpha);
 	CaptureActors.Add(Slot.MonitorIndex, CaptureActor);
 
 	UTextureRenderTarget2D* BoundRT = CaptureActor->GetRenderTarget();
@@ -522,6 +553,7 @@ UUserWidget* UMultimonitorSubsystem::BuildContentWidget(UWorld* World, const FMu
 		if (Viewer)
 		{
 			ApplyPostProcessToRenderTargetCaptures(World, RT, Slot.PostProcessMaterials, Slot.MonitorIndex);
+			Viewer->SetVisualizeAlpha(Slot.bVisualizeAlpha, Slot.bInvertAlpha);
 			Viewer->SetRenderTarget(RT);
 		}
 		return Viewer;
@@ -541,6 +573,7 @@ UUserWidget* UMultimonitorSubsystem::BuildContentWidget(UWorld* World, const FMu
 
 		if (Viewer)
 		{
+			Viewer->SetVisualizeAlpha(Slot.bVisualizeAlpha, Slot.bInvertAlpha);
 			Viewer->SetRenderTarget(RT);
 		}
 		return Viewer;

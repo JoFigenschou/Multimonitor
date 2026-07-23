@@ -4,8 +4,11 @@
 #include "Components/CanvasPanel.h"
 #include "Components/CanvasPanelSlot.h"
 #include "Components/Image.h"
+#include "Engine/Texture2D.h"
 #include "Engine/TextureRenderTarget2D.h"
 #include "Materials/MaterialInstanceDynamic.h"
+#include "MultimonitorAlphaDisplay.h"
+#include "MultimonitorLog.h"
 
 void UMultimonitorRenderTargetWidget::NativeOnInitialized()
 {
@@ -17,18 +20,22 @@ void UMultimonitorRenderTargetWidget::NativeOnInitialized()
 void UMultimonitorRenderTargetWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
-	bHasScriptImplementedTick = true;
 	EnsureDisplayImage();
 	ApplyToImage();
 }
 
-void UMultimonitorRenderTargetWidget::NativeTick(const FGeometry& MyGeometry, float InDeltaTime)
+void UMultimonitorRenderTargetWidget::RefreshFromSubsystem()
 {
-	Super::NativeTick(MyGeometry, InDeltaTime);
-	if (RenderTarget && DisplayImage)
+	if (!RenderTarget || !DisplayImage)
 	{
-		ApplyToImage();
+		return;
 	}
+
+	if (bVisualizeAlpha)
+	{
+		UpdateAlphaVisualization();
+	}
+	ApplyToImage();
 }
 
 TSharedRef<SWidget> UMultimonitorRenderTargetWidget::RebuildWidget()
@@ -78,6 +85,10 @@ void UMultimonitorRenderTargetWidget::EnsureDisplayImage()
 void UMultimonitorRenderTargetWidget::SetRenderTarget(UTextureRenderTarget2D* InRenderTarget)
 {
 	RenderTarget = InRenderTarget;
+	if (bVisualizeAlpha)
+	{
+		UpdateAlphaVisualization();
+	}
 	ApplyToImage();
 }
 
@@ -89,6 +100,50 @@ void UMultimonitorRenderTargetWidget::SetDisplayMaterial(UMaterialInterface* InM
 	ApplyToImage();
 }
 
+void UMultimonitorRenderTargetWidget::SetVisualizeAlpha(bool bEnabled, bool bInvert)
+{
+	bVisualizeAlpha = bEnabled;
+	bInvertAlpha = bInvert;
+	DisplayMID = nullptr;
+	if (!bVisualizeAlpha)
+	{
+		AlphaVizTexture = nullptr;
+		AlphaPixelScratch.Reset();
+	}
+	else
+	{
+		UpdateAlphaVisualization();
+	}
+	ApplyToImage();
+}
+
+void UMultimonitorRenderTargetWidget::UpdateAlphaVisualization()
+{
+	if (!bVisualizeAlpha || !RenderTarget)
+	{
+		return;
+	}
+
+	UTexture2D* Texture = AlphaVizTexture.Get();
+	UTexture2D* Result = MultimonitorAlphaDisplay::CopyAlphaToTexture(
+		this,
+		RenderTarget,
+		Texture,
+		AlphaPixelScratch,
+		bInvertAlpha);
+	AlphaVizTexture = Texture;
+
+	if (!Result)
+	{
+		static bool bLogged = false;
+		if (!bLogged)
+		{
+			bLogged = true;
+			UE_LOG(LogMultimonitor, Warning, TEXT("Multimonitor: Failed to copy alpha into visualization texture."));
+		}
+	}
+}
+
 void UMultimonitorRenderTargetWidget::ApplyToImage()
 {
 	EnsureDisplayImage();
@@ -97,11 +152,37 @@ void UMultimonitorRenderTargetWidget::ApplyToImage()
 		return;
 	}
 
-	if (DisplayMaterial && RenderTarget)
+	if (bVisualizeAlpha)
 	{
-		if (!DisplayMID || DisplayMID->Parent != DisplayMaterial)
+		DisplayMID = nullptr;
+		UTexture2D* VizTex = AlphaVizTexture.Get();
+		if (VizTex)
 		{
-			DisplayMID = UMaterialInstanceDynamic::Create(DisplayMaterial, this);
+			FSlateBrush Brush;
+			Brush.SetResourceObject(VizTex);
+			Brush.ImageSize = FVector2D(
+				VizTex->GetSizeX() > 0 ? VizTex->GetSizeX() : 1920,
+				VizTex->GetSizeY() > 0 ? VizTex->GetSizeY() : 1080);
+			Brush.DrawAs = ESlateBrushDrawType::Image;
+			Brush.Tiling = ESlateBrushTileType::NoTile;
+			Brush.Mirroring = ESlateBrushMirrorType::NoMirror;
+			Brush.ImageType = ESlateBrushImageType::FullColor;
+			DisplayImage->SetBrush(Brush);
+			DisplayImage->SetBrushResourceObject(VizTex);
+		}
+		else
+		{
+			DisplayImage->SetBrush(FSlateBrush());
+		}
+		return;
+	}
+
+	UMaterialInterface* MaterialToUse = DisplayMaterial.Get();
+	if (MaterialToUse && RenderTarget)
+	{
+		if (!DisplayMID || DisplayMID->Parent != MaterialToUse)
+		{
+			DisplayMID = UMaterialInstanceDynamic::Create(MaterialToUse, this);
 		}
 
 		if (DisplayMID)

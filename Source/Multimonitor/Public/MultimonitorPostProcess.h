@@ -13,6 +13,9 @@ namespace MultimonitorPostProcess
 	/** FinalToneCurveHDR + post-processing + eye adaptation show flags. */
 	void ConfigureForViewportMatch(USceneCaptureComponent2D* Capture);
 
+	/** SceneColorHDR so Inv Opacity is written to RT alpha (for Visualize Alpha). */
+	void ConfigureForAlphaCapture(USceneCaptureComponent2D* Capture);
+
 	/** Enable post-processing without changing CaptureSource. */
 	void EnsurePostProcessEnabled(USceneCaptureComponent2D* Capture);
 

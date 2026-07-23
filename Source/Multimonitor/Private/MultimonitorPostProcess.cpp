@@ -3,6 +3,8 @@
 #include "Camera/CameraComponent.h"
 #include "Components/SceneCaptureComponent2D.h"
 #include "Engine/Scene.h"
+#include "Engine/TextureRenderTarget2D.h"
+#include "HAL/IConsoleManager.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
 #include "MultimonitorLog.h"
@@ -50,6 +52,41 @@ namespace MultimonitorPostProcess
 		Capture->CaptureSource = ESceneCaptureSource::SCS_FinalToneCurveHDR;
 		Capture->bAlwaysPersistRenderingState = true;
 		EnsurePostProcessEnabled(Capture);
+	}
+
+	void ConfigureForAlphaCapture(USceneCaptureComponent2D* Capture)
+	{
+		if (!Capture)
+		{
+			return;
+		}
+
+		static IConsoleVariable* PropagateAlphaCVar = IConsoleManager::Get().FindConsoleVariable(TEXT("r.PostProcessing.PropagateAlpha"));
+		if (PropagateAlphaCVar && PropagateAlphaCVar->GetInt() == 0)
+		{
+			UE_LOG(LogMultimonitor, Warning,
+				TEXT("Multimonitor: Visualize Alpha needs r.PostProcessing.PropagateAlpha=1 (Project Settings → Rendering → Enable alpha channel support in post processing)."));
+		}
+
+		// Writes Inv Opacity into A. Display Invert Alpha converts that to opacity grayscale.
+		Capture->CaptureSource = ESceneCaptureSource::SCS_SceneColorHDR;
+		Capture->bAlwaysPersistRenderingState = true;
+		Capture->CompositeMode = SCCM_Overwrite;
+		Capture->ShowFlags.SetPostProcessing(false);
+		Capture->ShowFlags.SetTranslucency(true);
+		Capture->ShowFlags.SetParticles(true);
+		Capture->PostProcessBlendWeight = 0.0f;
+		Capture->PostProcessSettings = FPostProcessSettings();
+
+		if (UTextureRenderTarget2D* RT = Capture->TextureTarget)
+		{
+			// Inv Opacity clear: fully transparent = A 1.
+			RT->ClearColor = FLinearColor(0.f, 0.f, 0.f, 1.f);
+		}
+
+		UE_LOG(LogMultimonitor, Log,
+			TEXT("Multimonitor: Alpha capture on '%s' (SceneColorHDR Inv Opacity in A). Opaque UE5 meshes may need Holdout to punch A."),
+			*Capture->GetName());
 	}
 
 	static void ForceExposureOverrides(FPostProcessSettings& Settings)

@@ -27,7 +27,8 @@ public:
 		UTextureRenderTarget2D* InRenderTarget,
 		const FIntPoint& FallbackResolution,
 		const TArray<FMultimonitorPostProcessEntry>& InPostProcessMaterials,
-		bool bInCopyCameraPostProcess);
+		bool bInCopyCameraPostProcess,
+		bool bInVisualizeAlpha);
 
 	void SetViewTarget(AActor* InViewTarget);
 	void SetPostProcessMaterials(const TArray<FMultimonitorPostProcessEntry>& InPostProcessMaterials);
@@ -56,6 +57,7 @@ protected:
 
 	int32 MonitorIndex = INDEX_NONE;
 	bool bCopyCameraPostProcess = true;
+	bool bVisualizeAlpha = false;
 
 	void SyncTransformToViewTarget();
 	void ApplyPostProcess();
